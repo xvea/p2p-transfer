@@ -8,20 +8,29 @@ import { usePeerActions, usePeerStore } from '../store/usePeerStore'
 import ThemeButton from './ThemeButton'
 import { ConnectionStatus } from './app/ConnectionStatus'
 import { DashboardHeader } from './app/DashboardHeader'
+import { FileReceiver } from './app/FileReceiver'
 import { FileSender } from './app/FileSender'
 import { SessionControl } from './app/SessionControl'
 import { useEffect } from 'react'
 
 export function PeerManagerUI() {
-	const { peerId, connections, selectedConnection, stagedFiles, uploadProgress, isLoading, isConnecting, isStarted } =
-		usePeerStore()
+	const {
+		peerId,
+		connections,
+		selectedConnection,
+		stagedFile,
+		uploadProgress,
+		downloadProgress,
+		isLoading,
+		isConnecting,
+		isStarted,
+	} = usePeerStore()
 
 	const {
 		startPeer,
 		connectToPeer,
 		addStagedFile,
-		removeStagedFile,
-		sendStagedFiles,
+		sendStagedFile,
 		clearCompletedUpload,
 		initializeWithQueryParam,
 		stopPeer,
@@ -35,9 +44,7 @@ export function PeerManagerUI() {
 
 	const handleManualConnect = async (targetId: string) => {
 		toast.info('Starting local session...')
-
 		const selfId = await startPeer()
-
 		if (selfId) {
 			toast.info('Local session started, connecting to peer...')
 			await connectToPeer(targetId)
@@ -64,44 +71,30 @@ export function PeerManagerUI() {
 				) : (
 					<CardContent className="space-y-6">
 						<DashboardHeader peerId={peerId} onStop={stopPeer} />
-
 						<Separator />
-
 						<ConnectionStatus connections={connections} />
-
 						<Separator />
 
-						{selectedConnection ? (
+						{downloadProgress ? (
+							<FileReceiver fileName={downloadProgress.name} progress={downloadProgress.progress} />
+						) : selectedConnection ? (
 							<FileSender
-								stagedFiles={stagedFiles}
+								stagedFile={stagedFile}
 								uploadProgress={uploadProgress}
-								onFilesAdded={addStagedFile}
-								onFileRemoved={removeStagedFile}
-								onSend={sendStagedFiles}
+								onFileAdded={addStagedFile}
+								onSend={sendStagedFile}
 								onClearCompleted={clearCompletedUpload}
 							/>
 						) : (
 							<div className="py-4 text-center">
-								<p className="text-muted-foreground text-sm">Waiting for connection to send files...</p>
+								<p className="text-muted-foreground text-sm">
+									Waiting for connection to send or receive files...
+								</p>
 							</div>
 						)}
 					</CardContent>
 				)}
 			</Card>
-
-			<footer className="text-muted-foreground mt-6 text-center text-sm">
-				<p>
-					Created by{' '}
-					<a
-						href="https://raa.my.id"
-						target="_blank"
-						rel="noopener noreferrer"
-						className="text-primary font-semibold hover:underline"
-					>
-						Rara
-					</a>
-				</p>
-			</footer>
 		</div>
 	)
 }

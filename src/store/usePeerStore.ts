@@ -1,35 +1,49 @@
-import download from 'js-file-download'
 import { toast } from 'sonner'
 import { create } from 'zustand'
 
-import { type FileData, PeerManager } from '../helpers/peer'
+import { type PeerDataType, PeerManager } from '../helpers/peer'
+
+interface ProgressState {
+	name: string
+	progress: number
+}
 
 interface PeerState {
 	peerId: string | null
 	connections: string[]
 	selectedConnection: string | null
-	stagedFiles: File[]
-	uploadProgress: Map<string, number>
+	stagedFile: File | null
+	uploadProgress: number | null
+	downloadProgress: ProgressState | null
 	isLoading: boolean
 	isConnecting: boolean
 	isStarted: boolean
 	actions: {
 		startPeer: () => Promise<string | null>
 		connectToPeer: (targetId: string) => Promise<void>
-		selectConnection: (id: string) => void
-		addStagedFile: (files: FileList | null) => void
-		removeStagedFile: (fileName: string) => void
-		sendStagedFiles: () => Promise<void>
-		clearCompletedUpload: (fileName: string) => void
+		addStagedFile: (file: File | null) => void
+		sendStagedFile: () => Promise<void>
+		clearCompletedUpload: () => void
 		initializeWithQueryParam: () => Promise<void>
 		stopPeer: () => void
 	}
 }
 
 export const usePeerStore = create<PeerState>((set, get) => {
-	const handleReceiveFile = (file: FileData) => {
-		toast.info(`Receiving file "${file.fileName}"...`)
-		download(file.file, file.fileName, file.fileType)
+	const handleIncomingData = (message: PeerDataType) => {
+		switch (message.type) {
+			case 'metadata':
+				set({ downloadProgress: { name: message.payload.name, progress: 0 } })
+				break
+			case 'progress':
+				set({ downloadProgress: message.payload })
+				break
+			case 'end':
+				setTimeout(() => set({ downloadProgress: null }), 2000)
+				break
+			default:
+				break
+		}
 	}
 
 	const handleDisconnect = (peerId: string) => {
@@ -44,19 +58,18 @@ export const usePeerStore = create<PeerState>((set, get) => {
 		peerId: null,
 		connections: [],
 		selectedConnection: null,
-		stagedFiles: [],
-		uploadProgress: new Map(),
+		stagedFile: null,
+		uploadProgress: null,
+		downloadProgress: null,
 		isLoading: false,
 		isConnecting: false,
 		isStarted: false,
 		actions: {
 			startPeer: async () => {
 				if (get().isLoading || get().isStarted) return null
-				console.log('Attempting to start peer session...')
 				set({ isLoading: true })
 				try {
 					const id = await PeerManager.startPeerSession()
-					console.log('Peer session successfully started with ID:', id)
 					set({ peerId: id, isStarted: true, isLoading: false })
 					PeerManager.onIncomingConnection((conn) => {
 						const newPeerId = conn.peer
@@ -65,7 +78,7 @@ export const usePeerStore = create<PeerState>((set, get) => {
 							connections: [newPeerId],
 							selectedConnection: newPeerId,
 						})
-						PeerManager.setupConnectionHandlers(conn, handleReceiveFile, () => handleDisconnect(newPeerId))
+						PeerManager.setupConnectionHandlers(conn, handleIncomingData, () => handleDisconnect(newPeerId))
 					})
 					return id
 				} catch (error: any) {
@@ -84,21 +97,19 @@ export const usePeerStore = create<PeerState>((set, get) => {
 					toast.warning('A peer is already connected.')
 					return
 				}
-				console.log(`Attempting to connect to peer: ${targetId}`)
 				set({ isConnecting: true })
 				try {
 					const conn = await PeerManager.connectToPeer(targetId)
-					console.log('Connection successful to:', targetId)
 					toast.success(`Successfully connected to ${targetId}`)
 					set({
 						connections: [targetId],
 						selectedConnection: targetId,
 					})
-					PeerManager.setupConnectionHandlers(conn, handleReceiveFile, () => handleDisconnect(targetId))
+					PeerManager.setupConnectionHandlers(conn, handleIncomingData, () => handleDisconnect(targetId))
 				} catch (error: any) {
 					console.error('Connection Error:', error)
 					if (error.type === 'peer-unavailable') {
-						toast.error(`Peer "${targetId}" is not available or has closed the session.`)
+						toast.error(`Peer "${targetId}" is not available or offline.`)
 					} else {
 						toast.error(`Failed to connect to ${targetId}.`)
 					}
@@ -111,78 +122,43 @@ export const usePeerStore = create<PeerState>((set, get) => {
 				const params = new URLSearchParams(window.location.search)
 				const connectToId = params.get('connect')
 				if (connectToId) {
-					toast.info('URL parameter found, attempting to connect...')
+					toast.info('Attempting to connect via URL...')
 					const { startPeer, connectToPeer } = get().actions
-
 					const selfId = await startPeer()
 					if (selfId) {
-						console.log(`Local session started (${selfId}), now connecting to ${connectToId}`)
 						await connectToPeer(connectToId)
-					} else {
-						toast.error('Could not start a local session, connection aborted.')
 					}
 				}
 			},
 
-			selectConnection: (id: string) => set({ selectedConnection: id }),
-
-			addStagedFile: (files: FileList | null) => {
-				if (!files) return
-				set((state) => {
-					const currentFiles = state.stagedFiles
-					const newFiles = Array.from(files)
-					const totalFiles = currentFiles.length + newFiles.length
-					if (totalFiles > 3) {
-						toast.error('You can only select a maximum of 3 files.')
-						const needed = 3 - currentFiles.length
-						const uniqueNewFiles = newFiles
-							.filter((nf) => !currentFiles.some((cf) => cf.name === nf.name))
-							.slice(0, needed)
-						return { stagedFiles: [...currentFiles, ...uniqueNewFiles] }
-					}
-					const uniqueNewFiles = newFiles.filter((nf) => !currentFiles.some((cf) => cf.name === nf.name))
-					return { stagedFiles: [...currentFiles, ...uniqueNewFiles] }
-				})
+			addStagedFile: (file: File | null) => {
+				if (file && get().stagedFile) {
+					toast.error('You can only upload one file at a time.')
+					return
+				}
+				set({ stagedFile: file, uploadProgress: null })
 			},
 
-			removeStagedFile: (fileName: string) => {
-				set((state) => ({
-					stagedFiles: state.stagedFiles.filter((f) => f.name !== fileName),
-				}))
-			},
-
-			sendStagedFiles: async () => {
-				const { selectedConnection, stagedFiles } = get()
+			sendStagedFile: async () => {
+				const { selectedConnection, stagedFile } = get()
 				if (!selectedConnection) {
 					toast.error('Please select a connection first.')
 					return
 				}
-				if (stagedFiles.length === 0) {
-					toast.warning('No files to send.')
+				if (!stagedFile) {
+					toast.warning('No file selected to send.')
 					return
 				}
 
-				const filesToSend = [...stagedFiles]
-				set({ stagedFiles: [] })
+				set({ uploadProgress: 0 })
 
-				for (const file of filesToSend) {
-					set((state) => ({
-						uploadProgress: new Map(state.uploadProgress).set(file.name, 0),
-					}))
-					await PeerManager.sendFile(selectedConnection, file, (progress) => {
-						set((state) => ({
-							uploadProgress: new Map(state.uploadProgress).set(file.name, progress),
-						}))
-					})
-				}
+				await PeerManager.sendFile(selectedConnection, stagedFile, (progress) => {
+					set({ uploadProgress: progress })
+				})
 			},
 
-			clearCompletedUpload: (fileName: string) => {
-				set((state) => {
-					const newProgress = new Map(state.uploadProgress)
-					newProgress.delete(fileName)
-					return { uploadProgress: newProgress }
-				})
+			clearCompletedUpload: () => {
+				set({ stagedFile: null, uploadProgress: null })
 			},
 
 			stopPeer: () => {
@@ -192,8 +168,9 @@ export const usePeerStore = create<PeerState>((set, get) => {
 					isStarted: false,
 					connections: [],
 					selectedConnection: null,
-					stagedFiles: [],
-					uploadProgress: new Map(),
+					stagedFile: null,
+					uploadProgress: null,
+					downloadProgress: null,
 				})
 				toast.info('Peer session stopped.')
 			},
