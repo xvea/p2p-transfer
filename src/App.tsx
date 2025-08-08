@@ -1,5 +1,5 @@
 import { PeerManagerUI } from './components/PeerManagerUi'
-import { ThemeProvider } from './components/themeProvider'
+import { ThemeProvider } from './components/ThemeProvider'
 import { Toaster } from './components/ui/sonner'
 
 function App() {
