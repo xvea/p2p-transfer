@@ -1,18 +1,14 @@
-// import { FluidCursor } from '@/components/ui/fluid-cursor'
-import { ShootingStars } from '@/components/ui/shooting-stars'
-import { StarsBackground } from '@/components/ui/stars-background'
-
-import { CardApp } from './components/card-app'
+import { PeerManagerUI } from './components/PeerManagerUi'
+import { ThemeProvider } from './components/themeProvider'
+import { Toaster } from './components/ui/sonner'
 
 function App() {
-  return (
-    <div className="relative flex h-screen w-full items-center justify-center px-8">
-      <CardApp className="z-10" />
-      {/* <FluidCursor /> */}
-      <ShootingStars />
-      <StarsBackground />
-    </div>
-  )
+	return (
+		<ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
+			<PeerManagerUI />
+			<Toaster />
+		</ThemeProvider>
+	)
 }
 
 export default App
